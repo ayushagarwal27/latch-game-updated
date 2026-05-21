@@ -1,5 +1,7 @@
-import { Scene } from 'phaser';
+import { Scene, Input } from "phaser";
 import Level from "./Level.js";
+import { setupMultiplayer, emitMove, performAttack, ensureAnims } from "./net.js";
+import { playerConfig } from "./config.js";
 
 export default class DungeonScene extends Scene {
   constructor() {
@@ -17,7 +19,11 @@ export default class DungeonScene extends Scene {
     this.load.image("objects", "/assets/Dungeon_Objects.png");
     this.load.image("spikes", "/assets/Floor_spikes_1.png");
     this.load.tilemapTiledJSON("dungeon", "assets/dmap.json");
-    this.load.spritesheet("player", "assets/Spearman.png", {
+    this.load.spritesheet("Spearman", "assets/Spearman.png", {
+      frameWidth: 48,
+      frameHeight: 48,
+    });
+    this.load.spritesheet("orc", "assets/orc.png", {
       frameWidth: 48,
       frameHeight: 48,
     });
@@ -65,94 +71,39 @@ this.game.scale.resize(256,256)
     // });
     // this.spike.play("spike-anim", true);
 
+    this.spriteKey = playerConfig.sprite;
     this.player = this.physics.add
-        .sprite(
-            256/2 - 50,
-            256/2 - 35,
-            "player",
-        )
+        .sprite(256 / 2 - 50, 256 / 2 - 35, this.spriteKey)
         .setScale(1);
 
     this.player.life = 100;
 
-    this.player.setScale(1); // Scale the player sprite by 1.5 times
+    this.player.setScale(1);
     this.player.setBodySize(24, 28);
     this.player.setOffset(10, 13);
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.anims.create({
-      key: "idleDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 0, end: 5 }),
-      frameRate: 10,
-      repeat: -1,
-    });
 
     this.physics.add.collider(this.player, pillarLayer);
     this.physics.add.collider(this.player, objectLayer);
 
-    this.anims.create({
-      key: "idleRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 6, end: 11 }),
-      frameRate: 10,
-      repeat: -1,
-    });
+    // Build animations for both characters (prefixed by sheet key).
+    ensureAnims(this, "Spearman");
+    ensureAnims(this, "orc");
 
-    this.anims.create({
-      key: "idleUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 12, end: 17 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "walkDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 18, end: 23 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "walkRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 24, end: 29 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "walkUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 30, end: 35 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "attackDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 36, end: 39 }),
-      frameRate: 10,
-      repeat: 1,
-    });
-
-    this.anims.create({
-      key: "attackRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 42, end: 46 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "attackUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 48, end: 52 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "die",
-      frames: this.anims.generateFrameNumbers("player", { start: 54, end: 56 }),
-      frameRate: 10,
-      repeat: 0,
-    });
-    this.player.play("idleDown");
+    this.player.play(this.spriteKey + "_idleDown");
     this.healthBar = this.createHealthBar(this.player.x, this.player.y, this.player);
+
+    // SPACE to attack the nearest opponent, ESC to leave the arena.
+    this.attackKey = this.input.keyboard.addKey(Input.Keyboard.KeyCodes.SPACE);
+    this.leaveKey = this.input.keyboard.addKey(Input.Keyboard.KeyCodes.ESC);
+
+    this.add
+      .text(4, 4, "SPACE attack   ESC leave", { fontSize: "8px", color: "#ffffff" })
+      .setScrollFactor(0)
+      .setDepth(200);
+
+    // Join the Dungeon battle room and start syncing opponents.
+    setupMultiplayer(this, "DungeonScene");
   }
 
   createHealthBar(x, y, player) {
@@ -177,107 +128,75 @@ this.game.scale.resize(256,256)
   }
 
   update() {
+    if (!this.player || !this.player.body || this.isDead) return;
+
     const speed = 80;
-    const prevVelocity = this.player.body.velocity.clone();
-    let newX = this.player.x;
-    let newY = this.player.y;
-
-      // this.input.keyboard.addListener("keydown-F", (e) => {
-      //     console.log(e)
-      //     this.player.play("attackRight");
-      // })
-
-    // Stop any previous movement from the last frame
     this.player.body.setVelocity(0);
 
-    // Horizontal movement
+    let animation = this.lastDirection ? "idle" + this.lastDirection : "idleDown";
+
     if (this.cursors.left.isDown) {
-      newX -= speed * (1 / 60);
-      if (!this.level.isColliding(newX, newY)) {
-        this.player.body.setVelocityX(-speed);
-        this.player.anims.play("walkRight", true); // Assuming you have a 'walkLeft' animation
-        this.player.flipX = true; // Flip the sprite to face left
-      }
+      this.player.body.setVelocityX(-speed);
+      animation = "walkRight";
+      this.lastDirection = "Right";
+      this.player.flipX = true;
     } else if (this.cursors.right.isDown) {
-      newX += speed * (1 / 60);
-      if (!this.level.isColliding(newX, newY)) {
-        this.player.body.setVelocityX(speed);
-        this.player.anims.play("walkRight", true);
-        this.player.flipX = false; // Ensure the sprite is facing right
-      }
+      this.player.body.setVelocityX(speed);
+      animation = "walkRight";
+      this.lastDirection = "Right";
+      this.player.flipX = false;
     }
 
-    // Vertical movement
     if (this.cursors.up.isDown) {
-      newY -= speed * (1 / 60);
-      if (!this.level.isColliding(newX, newY)) {
-        this.player.body.setVelocityY(-speed);
-        this.player.anims.play("walkUp", true);
-      }
+      this.player.body.setVelocityY(-speed);
+      animation = "walkUp";
+      this.lastDirection = "Up";
     } else if (this.cursors.down.isDown) {
-      newY += speed * (1 / 60);
-      console.log(this.level.isColliding(newX, newY));
-      if (!this.level.isColliding(newX, newY)) {
-        console.log("not");
-        this.player.body.setVelocityY(speed);
-        this.player.anims.play("walkDown", true);
-      }
+      this.player.body.setVelocityY(speed);
+      animation = "walkDown";
+      this.lastDirection = "Down";
     }
 
-    // Normalize and scale the velocity so that player can't move faster along a diagonal
     this.player.body.velocity.normalize().scale(speed);
 
-    // If no movement keys are pressed, stop the animation
-    if (
-        this.cursors.left.isUp &&
-        this.cursors.right.isUp &&
-        this.cursors.up.isUp &&
-        this.cursors.down.isUp
-    ) {
-      this.player.anims.stop();
+    const idle =
+      !this.cursors.left.isDown &&
+      !this.cursors.right.isDown &&
+      !this.cursors.up.isDown &&
+      !this.cursors.down.isDown;
+    if (idle && this.lastDirection) animation = "idle" + this.lastDirection;
 
-      // Set idle animation based on the last direction
-      if (prevVelocity.x < 0) {
-        this.player.anims.play("idleRight", true);
-        this.player.flipX = true;
-      } else if (prevVelocity.x > 0) {
-        this.player.anims.play("idleRight", true);
-        this.player.flipX = false;
-      } else if (prevVelocity.y < 0) {
-        this.player.anims.play("idleUp", true);
-      } else if (prevVelocity.y > 0) {
-        this.player.anims.play("idleDown", true);
-      }
+    // Start a swing on SPACE (ignored while one is already playing).
+    if (Input.Keyboard.JustDown(this.attackKey)) {
+      performAttack(this, 45);
     }
 
-    // Update health bar position and width
+    // While attacking, hold the attack clip and broadcast it; otherwise play
+    // the movement animation as usual. Keys are prefixed by the chosen sheet.
+    let toPlay;
+    if (this.isAttacking) {
+      toPlay = this.attackAnimKey;
+    } else {
+      toPlay = this.spriteKey + "_" + animation;
+      this.player.play(toPlay, true);
+    }
+
+    emitMove(this, toPlay);
+
+    if (Input.Keyboard.JustDown(this.leaveKey)) {
+      this.scene.start("CommonScene");
+    }
+
     if (this.healthBar) {
-        const yOffset = -20;
-        const width = 40;
-        
-        this.healthBar.outline.x = this.player.x;
-        this.healthBar.outline.y = this.player.y + yOffset;
-        this.healthBar.background.x = this.player.x;
-        this.healthBar.background.y = this.player.y + yOffset;
-        
-        // Update red bar position and width
-        this.healthBar.bar.x = this.player.x - width/2;
-        this.healthBar.bar.y = this.player.y + yOffset;
-        this.healthBar.bar.width = (this.player.life / 100) * width;
+      const yOffset = -20;
+      const width = 40;
+      this.healthBar.outline.x = this.player.x;
+      this.healthBar.outline.y = this.player.y + yOffset;
+      this.healthBar.background.x = this.player.x;
+      this.healthBar.background.y = this.player.y + yOffset;
+      this.healthBar.bar.x = this.player.x - width / 2;
+      this.healthBar.bar.y = this.player.y + yOffset;
+      this.healthBar.bar.width = (Math.max(0, this.player.life) / 100) * width;
     }
-  }
-
-  handleSocketEvents() {
-    // ... keep existing socket events ...
-
-    // Check if this handler exists and has flipX
-    this.socket.on('playerMoved', (playerInfo) => {
-        if (this.otherPlayers[playerInfo.playerId]) {
-            const otherPlayer = this.otherPlayers[playerInfo.playerId];
-            otherPlayer.setPosition(playerInfo.x, playerInfo.y);
-            otherPlayer.anims.play(playerInfo.animation, true);
-            otherPlayer.flipX = playerInfo.flipX;  // Make sure this is here
-        }
-    });
   }
 }

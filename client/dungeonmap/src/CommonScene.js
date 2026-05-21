@@ -1,7 +1,7 @@
-import { Scene, Physics, Input, Math as PhaserMath } from "phaser";
+import { Scene, Input } from "phaser";
 import Level from "./Level.js";
-import { io } from "socket.io-client";
-const socketUrl = "https://latch.netlify.app/game";
+import { setupMultiplayer, emitMove, ensureAnims } from "./net.js";
+import { playerConfig } from "./config.js";
 export default class CommonScene extends Scene {
   constructor() {
     super("CommonScene");
@@ -33,13 +33,20 @@ export default class CommonScene extends Scene {
     this.load.image("Water_Troughs", "/assets/Water_Troughs.png");
 
     this.load.tilemapTiledJSON("common", "/assets/common.json");
-    this.load.spritesheet("player", "/assets/Spearman.png", {
+    this.load.spritesheet("Spearman", "/assets/Spearman.png", {
+      frameWidth: 48,
+      frameHeight: 48,
+    });
+    this.load.spritesheet("orc", "/assets/orc.png", {
       frameWidth: 48,
       frameHeight: 48,
     });
   }
 
   create() {
+    // Restore full-size viewport (battle scenes shrink it to 256x256).
+    this.game.scale.resize(800, 600);
+
     const map = this.make.tilemap({ key: "common" });
     const grass = map.addTilesetImage("Grass_Middle", "Grass_Middle");
     const water = map.addTilesetImage("Water_Tile", "Water_Tile");
@@ -107,27 +114,19 @@ export default class CommonScene extends Scene {
     // layer3.setScale(1, 1).setOrigin(0, 0);
     // layer3.setCollisionByProperty({ collider: true });
 
-    this.socket = io("http://localhost:3001", {
-      withCredentials: true,
-    });
+    this.spriteKey = playerConfig.sprite;
     this.player = this.physics.add
-      .sprite(this.game.config.width / 2, this.game.config.height / 2, "player")
+      .sprite(this.game.config.width / 2, this.game.config.height / 2, this.spriteKey)
       .setScale(1);
 
     this.player.setCollideWorldBounds(true);
     this.player.life = 100;
     this.player.attack = 10;
     this.player.weapon = "sword";
-    this.player.setScale(1); // Scale the player sprite by 1.5 times
+    this.player.setScale(1);
     this.player.setBodySize(24, 28);
     this.player.setOffset(10, 13);
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.anims.create({
-      key: "idleDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 0, end: 5 }),
-      frameRate: 10,
-      repeat: -1,
-    });
     let element = document.getElementById("input-box");
     const yesButton = document.getElementById("yes");
     const noButton = document.getElementById("no");
@@ -160,147 +159,24 @@ export default class CommonScene extends Scene {
     this.cameras.main.setFollowOffset(-50, -50);
     this.player.setOrigin(0.5, 0.5);
 
-    this.anims.create({
-      key: "idleRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 6, end: 11 }),
-      frameRate: 10,
-      repeat: -1,
-    });
+    // Build animations for both characters (prefixed by sheet key).
+    ensureAnims(this, "Spearman");
+    ensureAnims(this, "orc");
 
-    this.anims.create({
-      key: "idleUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 12, end: 17 }),
-      frameRate: 10,
-      repeat: -1,
-    });
+    this.player.play(this.spriteKey + "_idleDown");
+    // No health bars in the peaceful common area.
+    setupMultiplayer(this, "CommonScene", { showBars: false });
 
-    this.anims.create({
-      key: "walkDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 18, end: 23 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "walkRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 24, end: 29 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "walkUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 30, end: 35 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "attackDown",
-      frames: this.anims.generateFrameNumbers("player", { start: 36, end: 39 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "attackRight",
-      frames: this.anims.generateFrameNumbers("player", { start: 42, end: 46 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "attackUp",
-      frames: this.anims.generateFrameNumbers("player", { start: 48, end: 52 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-
-    this.anims.create({
-      key: "die",
-      frames: this.anims.generateFrameNumbers("player", { start: 54, end: 56 }),
-      frameRate: 10,
-      repeat: 0,
-    });
-    this.player.play("idleDown");
-    this.handleSocketEvents();
-
-    // Add a attack kek
-    this.attackKey = this.input.keyboard.addKey(
-      Phaser.Input.Keyboard.KeyCodes.SPACE
-    );
+    // Common area is peaceful — no combat here. Battle happens only after
+    // entering the Bridge or Dungeon arena via the house portal.
 
     // Add inventory key
     this.inventoryKey = this.input.keyboard.addKey(
-      Phaser.Input.Keyboard.KeyCodes.I
+      Input.Keyboard.KeyCodes.I
     );
 
     // Create inventory (initially hidden)
     this.createInventory();
-  }
-
-  handleSocketEvents() {
-    const socket = this.socket;
-
-    socket.on("currentPlayers", (players) => {
-      Object.keys(players).forEach((id) => {
-        if (players[id].playerId === socket.id) {
-          this.player.setPosition(players[id].x, players[id].y);
-        } else {
-          this.addOtherPlayer(players[id]);
-        }
-      });
-    });
-
-    socket.on("newPlayer", (playerInfo) => {
-      console.log("New player connected:", playerInfo);
-      this.addOtherPlayer(playerInfo);
-    });
-
-    socket.on("playerMoved", (playerInfo) => {
-      if (this.otherPlayers[playerInfo.playerId]) {
-        var otherPlayer = this.otherPlayers[playerInfo.playerId];
-        otherPlayer.setPosition(playerInfo.x, playerInfo.y);
-        otherPlayer.anims.play(playerInfo.animation, true);
-        otherPlayer.flipX = playerInfo.flipX;
-      }
-    });
-
-    socket.on("playerAttacked", (data) => {
-      if (this.otherPlayers[data.target]) {
-        this.otherPlayers[data.target].life = data.life;
-        console.log("Player attacked:", data);
-      }
-    });
-
-    socket.on("playerDefeated", (playerId) => {
-      if (this.otherPlayers[playerId]) {
-        this.otherPlayers[playerId].destroy();
-        delete this.otherPlayers[playerId];
-        console.log("Player defeated:", playerId);
-      }
-    });
-
-    socket.on("playerDisconnected", (playerId) => {
-      if (this.otherPlayers[playerId]) {
-        this.otherPlayers[playerId].destroy();
-        delete this.otherPlayers[playerId];
-      }
-    });
-  }
-
-  addOtherPlayer(playerInfo) {
-    const otherPlayer = this.physics.add.sprite(
-      playerInfo.x,
-      playerInfo.y,
-      "player"
-    );
-    otherPlayer.playerId = playerInfo.playerId;
-    otherPlayer.life = playerInfo.life;
-    otherPlayer.attack = playerInfo.attack;
-    otherPlayer.weapon = playerInfo.weapon;
-    this.otherPlayers[playerInfo.playerId] = otherPlayer;
-    console.log("Added other player:", playerInfo);
   }
 
   createInventory() {
@@ -411,23 +287,12 @@ export default class CommonScene extends Scene {
       }
     }
 
-    // Play the animation
-    this.player.play(animation, true);
+    // Play the animation (prefixed by the chosen character sheet).
+    const toPlay = this.spriteKey + "_" + animation;
+    this.player.play(toPlay, true);
 
-    // Emit movement to server
-    if (time - this.lastEmitTime > 5) {
-      this.socket.emit("movePlayer", {
-        x: this.player.x,
-        y: this.player.y,
-        animation: animation,
-        flipX: this.player.flipX,
-        lastDirection: this.lastDirection,
-      });
-      this.lastEmitTime = time;
-    }
-    if (Input.Keyboard.JustDown(this.attackKey)) {
-      this.handleAttack();
-    }
+    // Emit movement to the server (throttled inside emitMove).
+    emitMove(this, toPlay);
 
     // Add inventory toggle at the end of update
     if (Input.Keyboard.JustDown(this.inventoryKey)) {
@@ -436,32 +301,6 @@ export default class CommonScene extends Scene {
       } else {
         this.showInventory();
       }
-    }
-  }
-
-  handleAttack() {
-    // Find the closest player to attack
-    let closestPlayer = null;
-    let closestDistance = Infinity;
-
-    Object.keys(this.otherPlayers).forEach((id) => {
-      const otherPlayer = this.otherPlayers[id];
-      const distance = PhaserMath.Distance.Between(
-        this.player.x,
-        this.player.y,
-        otherPlayer.x,
-        otherPlayer.y
-      );
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestPlayer = otherPlayer;
-      }
-    });
-
-    if (closestPlayer && closestDistance < 20) {
-      // Adjust attack range as needed
-      this.socket.emit("attackPlayer", closestPlayer.playerId);
-      console.log("Attacking player:", closestPlayer.playerId);
     }
   }
 }

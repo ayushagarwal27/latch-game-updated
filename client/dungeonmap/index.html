@@ -7,9 +7,71 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/style.css">
     <title>Latch - Open World Game</title>
+    <style>
+      #char-select {
+        position: fixed;
+        inset: 0;
+        background: #11131a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        z-index: 50;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #fff;
+      }
+      #char-select h2 {
+        margin: 0;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 20px;
+        color: #aab2c0;
+      }
+      #char-select .cards { display: flex; gap: 36px; }
+      .char-card {
+        background: #1c1f2a;
+        border: 2px solid #333a4a;
+        border-radius: 12px;
+        padding: 20px 30px 16px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        color: #fff;
+        transition: border-color 0.12s, transform 0.12s;
+      }
+      .char-card:hover { border-color: #4d96ff; transform: translateY(-3px); }
+      .char-card .thumb {
+        width: 96px;
+        height: 96px;
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: 576px 1248px; /* sheet (288x624) at 2x */
+      }
+      .char-card .thumb.spearman { background-image: url("/assets/Spearman.png"); }
+      .char-card .thumb.orc { background-image: url("/assets/orc.png"); }
+      .char-card .label { font-size: 15px; letter-spacing: 0.04em; }
+    </style>
 </head>
 
 <body>
+
+<div id="char-select">
+    <h2>Choose your fighter</h2>
+    <div class="cards">
+        <button class="char-card" data-sprite="Spearman">
+            <span class="thumb spearman"></span>
+            <span class="label">Spearman</span>
+        </button>
+        <button class="char-card" data-sprite="orc">
+            <span class="thumb orc"></span>
+            <span class="label">Orc</span>
+        </button>
+    </div>
+</div>
 
 <div id="input-box" style="display: none">
     <h4>Do you want to join the battle ?</h4>
