@@ -15,6 +15,11 @@ const io = new Server(httpServer, {
   },
 });
 
+// Health check — returns a clean 200 for uptime monitors (and confirms the
+// server is awake when opened in a browser) instead of "Cannot GET /". Any
+// request here also keeps the Render free instance warm.
+app.get("/", (req, res) => res.send("Latch game server is running."));
+
 // socketId -> player record. `scene` is the room the player is currently in
 // ("CommonScene" | "BridgeScene" | "DungeonScene"), or null before they join.
 const players = {};
