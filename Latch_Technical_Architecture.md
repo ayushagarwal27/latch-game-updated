@@ -278,43 +278,43 @@ sequenceDiagram
   participant FE as Frontend
   participant BE as Backend
   participant DB as Postgres
-  participant P as Latch program (Solana)
+  participant P as Latch Program
 
-  U->>FE: walk into portal house (e.g. Bridge)
-  FE->>BE: GET /lobbies?scene=BridgeScene
-  BE->>DB: SELECT * FROM battles WHERE status='waiting' AND scene=...
+  U->>FE: walk into portal house
+  FE->>BE: GET /lobbies scene=BridgeScene
+  BE->>DB: SELECT waiting battles for scene
   DB-->>BE: lobbies
   BE-->>FE: lobbies
   FE->>U: render lobby UI
 
-  alt Create new match (host)
-    U->>FE: Create (wager = X SOL)
-    FE->>FE: battleId = uuid(); derive Vault + State PDAs
-    FE->>W: signAndSend(create_battle(battleId, wager:X, deadline))
-    W->>P: tx
-    P->>P: init BattleState + Vault; move X from player to vault
+  alt Create new match
+    U->>FE: Create with wager X SOL
+    FE->>FE: generate battleId / derive PDAs
+    FE->>W: sign create_battle tx
+    W->>P: submit tx
+    P->>P: init BattleState / Vault / move wager to vault
     P-->>W: signature
     W-->>FE: createTx
-    FE->>BE: POST /lobbies { battleId, createTx }
-    BE->>P: getTransaction(createTx) // confirm
-    BE->>DB: INSERT battles(status='waiting', vault_pda, ...)
+    FE->>BE: POST /lobbies battleId createTx
+    BE->>P: confirm createTx
+    BE->>DB: INSERT battles status=waiting
     BE-->>FE: ok
-    BE-->>FE: lobby_update (to all clients in scene)
+    BE-->>FE: lobby_update to all clients
   else Join existing
     U->>FE: Join battle Y
-    FE->>W: signAndSend(join_battle(battleId:Y))
-    W->>P: tx
-    P->>P: move X from player to vault; status = Ready
+    FE->>W: sign join_battle tx
+    W->>P: submit tx
+    P->>P: move wager to vault / status=Ready
     P-->>W: signature
     W-->>FE: joinTx
-    FE->>BE: POST /battles/Y/joined { joinTx }
-    BE->>P: getTransaction(joinTx) // confirm
-    BE->>DB: UPDATE battles SET status='ready', player_b, join_tx
+    FE->>BE: POST /battles/Y/joined joinTx
+    BE->>P: confirm joinTx
+    BE->>DB: UPDATE battles status=ready player_b join_tx
     BE-->>FE: ok
-    BE-->>FE: battle_ready { battleId, scene, opponent } (to both)
+    BE-->>FE: battle_ready event to both players
   end
 
-  FE->>FE: scene.start("BridgeScene", { battleId })
+  FE->>FE: start BridgeScene
 ```
 
 ### 5.3 Battle resolution & payout
@@ -326,35 +326,35 @@ sequenceDiagram
   participant B as Frontend B
   participant BE as Backend
   participant DB as Postgres
-  participant AW as Admin keypair
-  participant P as Latch program (Solana)
+  participant AW as Admin Keypair
+  participant P as Latch Program
 
-  loop combat (existing engine)
-    A->>BE: attackPlayer(B)
-    BE->>BE: range/cone check, decrement B.life
+  loop combat
+    A->>BE: attackPlayer
+    BE->>BE: check range / decrement life
     BE-->>A: playerAttacked
     BE-->>B: playerAttacked
   end
 
-  Note over BE: B.life = 0  →  winner = A
+  Note over BE: life reaches 0 / winner determined
 
-  BE->>DB: UPDATE battles SET status='resolved', winner=A, ended_at=now
-  BE->>DB: UPDATE player_stats (A.wins+1, B.losses+1, totals)
+  BE->>DB: UPDATE battles resolved winner ended_at
+  BE->>DB: UPDATE player_stats wins losses totals
 
-  BE->>AW: build settle(battleId, winner=A)
+  BE->>AW: build settle tx for battleId
   AW->>P: signed settle tx
-  P->>P: assert signer == Config.admin
-  P->>P: assert state.status == Ready
-  P->>P: vault balance transferred to winner
-  P->>P: state.status = Resolved; state.winner stored
+  P->>P: verify signer is admin
+  P->>P: verify status is Ready
+  P->>P: transfer vault balance to winner
+  P->>P: mark Resolved / record winner
   P-->>AW: settleTx signature
   AW-->>BE: settleTx
-  BE->>DB: UPDATE battles SET settle_tx
+  BE->>DB: UPDATE battles settle_tx
 
-  BE-->>A: battle_result { winner: A, settleTx }
-  BE-->>B: battle_result { winner: A, settleTx }
-  A->>A: scene.start("CommonScene") (pot already in wallet)
-  B->>B: play die anim → scene.start("CommonScene")
+  BE-->>A: battle_result winner settleTx
+  BE-->>B: battle_result winner settleTx
+  A->>A: start CommonScene / pot in wallet
+  B->>B: play die anim / start CommonScene
 ```
 
 ---
