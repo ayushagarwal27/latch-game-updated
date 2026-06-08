@@ -289,7 +289,7 @@ sequenceDiagram
 
   alt Create new match (host)
     U->>FE: Create (wager = X SOL)
-    FE->>FE: battleId = uuid(); derive Vault, State PDAs
+    FE->>FE: battleId = uuid(); derive Vault + State PDAs
     FE->>W: signAndSend(create_battle(battleId, wager:X, deadline))
     W->>P: tx
     P->>P: init BattleState + Vault; move X from player to vault
@@ -346,7 +346,7 @@ sequenceDiagram
   P->>P: assert signer == Config.admin
   P->>P: assert state.status == Ready
   P->>P: vault balance transferred to winner
-  P->>P: state.status = Resolved; state.winner = A
+  P->>P: state.status = Resolved; state.winner stored
   P-->>AW: settleTx signature
   AW-->>BE: settleTx
   BE->>DB: UPDATE battles SET settle_tx
