@@ -289,8 +289,8 @@ sequenceDiagram
 
   alt Create new match (host)
     U->>FE: Create (wager = X SOL)
-    FE->>FE: battleId = uuid(); derive Vault & State PDAs
-    FE->>W: signAndSend(create_battle{battleId, wager:X, deadline})
+    FE->>FE: battleId = uuid(); derive Vault and State PDAs
+    FE->>W: signAndSend(create_battle(battleId, wager:X, deadline))
     W->>P: tx
     P->>P: init BattleState + Vault; move X from player to vault
     P-->>W: signature
@@ -302,7 +302,7 @@ sequenceDiagram
     BE-->>FE: lobby_update (to all clients in scene)
   else Join existing
     U->>FE: Join battle Y
-    FE->>W: signAndSend(join_battle{battleId:Y})
+    FE->>W: signAndSend(join_battle(battleId:Y))
     W->>P: tx
     P->>P: move X from player to vault; status = Ready
     P-->>W: signature
