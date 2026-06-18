@@ -1,21 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude when working with code in this repository.
 
 ## What is Latch?
 
-Latch is a blockchain-based Web3 gaming platform on the Shape network (Chain ID: 360). Players can engage in PvP and raid mechanics using NFT items bridged cross-chain. The platform has three independently deployable components: a Next.js website, a Socket.io multiplayer server, and Solidity smart contracts.
+Latch is a multiplayer browser game built with Phaser 3 and Socket.io. Players explore scenes, fight each other in real time, and chat via speech bubbles. The repo has three independently deployable components: a Vite + Phaser 3 frontend, a Socket.io multiplayer server, and Solidity smart contracts (kept for future use).
 
 ## Commands
 
-### Client — Website (`/client/website/`)
-```bash
-npm run dev     # Next.js dev server on localhost:3000
-npm run build   # Production build
-npm run lint    # ESLint
-```
-
-### Client — Dungeon Map (`/client/dungeonmap/`)
+### Frontend (`/frontend/`)
 ```bash
 npm run dev       # Vite dev server
 npm run build     # Vite production build
@@ -38,13 +31,6 @@ npx hardhat run scripts/simulation/pvp.js --network localhost                   
 
 ## Environment Setup
 
-**`/client/website/.env.local`**
-```
-NEXT_PUBLIC_CHAIN_ID=360
-NEXT_PUBLIC_PROJECT_ID=<Reown Project ID>
-NEXT_PUBLIC_ALCHEMY_API_KEY=<Alchemy API Key>
-```
-
 **`/smartContract/.env`** (see `.env.example`)
 ```
 KEY=<Alchemy RPC URL>
@@ -53,22 +39,19 @@ PK=<Deployer Private Key>
 
 ## Architecture
 
-### Three Independent Components
+### Three Components
 
-**`/client/website/`** — Next.js 15 + React 19 main app  
-- Uses the App Router. Game runs embedded via Phaser 3 in `/src/game/scenes/`.
-- Wallet connection via Reown (`/src/utils/reown/`), blockchain calls via Alchemy SDK + ethers.js.
-- Contract ABIs live in `/src/abis/` and are consumed directly in components and utils.
-- State shared across the app via React Context in `/src/utils/contextAPI/`.
+**`/frontend/`** — Vite + Phaser 3 game client
+- Scenes: `CommonScene`, `DungeonScene`, `BridgeScene` in `/src/`.
+- Connects to the Socket.io server for real-time multiplayer (movement, attacks, chat).
+- Player controls: arrow keys to move, Space to attack, T to open chat.
 
-**`/client/dungeonmap/`** — Standalone Vite + Phaser 3 dungeon game  
-- Separate from the website; has its own build pipeline. Intended to be embedded or linked.
+**`/server/server.js`** — Express + Socket.io multiplayer backend
+- Manages real-time player position, combat, chat messages, and scene rooms.
+- Players are isolated by scene — only players in the same scene interact.
+- Single file; deployable to any Node host.
 
-**`/server/server.js`** — Express + Socket.io multiplayer backend  
-- Manages real-time player position, attacks, and disconnection events.
-- Single file; deployed to Vercel (see `vercel.json`).
-
-**`/smartContract/`** — Hardhat + Solidity 0.8.28 smart contracts  
+**`/smartContract/`** — Hardhat + Solidity 0.8.28 smart contracts (future use)
 - Configured for Shape Mainnet, Shape Sepolia, and local Hardhat node.
 - Uses OpenZeppelin 5.x and Hardhat Ignition for deployments.
 
@@ -85,18 +68,10 @@ Contracts are organized by domain under `/smartContract/contracts/`:
 | `TokenMarket.sol` | On-chain marketplace |
 | `PvpVault`, `RaidVault`, `BridgeVault`, `TeamVault` | Prize and asset custody |
 
-Deployment modules are in `/smartContract/ignition/modules/`. Interaction scripts in `/smartContract/scripts/` follow a numbered flow: mint → import → export.
-
-### Key Data Flow
-
-Frontend wallet → Reown (wagmi/viem under the hood) → Alchemy RPC → Shape network contracts. Real-time game state (player positions, combat) flows through the Socket.io server independently of on-chain state.
-
-## Networks
+### Networks
 
 | Network | Chain ID | Usage |
 |---|---|---|
 | Shape Mainnet | 360 | Production |
 | Shape Sepolia | 11011 | Testnet |
 | Localhost | 31337 | Development |
-
-Hardhat RPC endpoints are configured via the `KEY` env var (Alchemy URL) in `hardhat.config.js`.

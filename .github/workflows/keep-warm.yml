@@ -1,0 +1,27 @@
+name: Keep Render server warm
+
+# Pings the free-tier Render server on a schedule so it doesn't spin down after
+# ~15 minutes of inactivity. Without this, the first visitor after an idle
+# period waits ~50s for a cold start.
+
+on:
+  schedule:
+    # Every 10 minutes. NOTE: GitHub delays scheduled runs under load, so this
+    # is best-effort. If you still see cold starts, change to "*/5 * * * *"
+    # or use an external pinger like UptimeRobot, which is more punctual.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # lets you run it manually from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping server
+        run: |
+          # --max-time 90 covers a cold start (~50s); --retry-all-errors keeps
+          # trying while the instance is still waking. "|| true" means a 404
+          # from "/" (the server has no web page, only a socket endpoint) or a
+          # slow wake never marks the job as failed — the request still wakes it.
+          curl -sS --max-time 90 --retry 3 --retry-all-errors \
+            "https://latch-game-updated.onrender.com/" \
+            -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" || true

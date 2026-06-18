@@ -1,30 +1,101 @@
-const express = require("express");
-const http = require("http");
+require("dotenv").config();
+const express    = require("express");
+const http       = require("http");
+const cors       = require("cors");
 const { Server } = require("socket.io");
-const app = express();
+const { Pool }   = require("pg");
+const { migrate } = require("./db/migrate");
+
+const app        = express();
 const httpServer = http.createServer(app);
 
-// Reflect the request origin and allow credentials so the Vite dev server
-// (http://localhost:8080) and the deployed client can both connect during
-// local development. Tighten this for production.
-const io = new Server(httpServer, {
-  cors: {
-    origin: true,
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
+// ── CORS ─────────────────────────────────────────────────────────────────────
+// Allow the Vite dev server and the deployed client.
+const corsOptions = { origin: true, credentials: true };
+app.use(cors(corsOptions));
+app.use(express.json());
+
+// ── Socket.io ─────────────────────────────────────────────────────────────────
+const io = new Server(httpServer, { cors: corsOptions });
+
+// ── PostgreSQL (NeonDB) ───────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // required for NeonDB
 });
 
-// Health check — returns a clean 200 for uptime monitors (and confirms the
-// server is awake when opened in a browser) instead of "Cannot GET /". Any
-// request here also keeps the Render free instance warm.
+// Run all pending SQL migrations before the server starts accepting traffic.
+migrate(pool).catch((err) => {
+  console.error("Migration failed:", err.message);
+  process.exit(1); // don't boot a server with a broken schema
+});
+
+// ── User API ──────────────────────────────────────────────────────────────────
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
+
+// Lookup a player by wallet address.
+// 200 { found: true,  user: { wallet_address, username } }
+// 200 { found: false }
+app.get("/api/user/:wallet", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT wallet_address, username FROM users WHERE wallet_address = $1",
+      [req.params.wallet]
+    );
+    if (rows.length) {
+      res.json({ found: true, user: rows[0] });
+    } else {
+      res.json({ found: false });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "DB error" });
+  }
+});
+
+// Register a new player.
+// Body: { wallet_address, username }
+// 201 { user: { wallet_address, username } }
+// 409 if wallet or username already taken
+app.post("/api/user", async (req, res) => {
+  const { wallet_address, username } = req.body ?? {};
+
+  if (!wallet_address || !username) {
+    return res.status(400).json({ error: "wallet_address and username are required" });
+  }
+  if (!USERNAME_RE.test(username)) {
+    return res.status(400).json({
+      error: "Username must be 3-20 characters: letters, numbers, or underscores only",
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO users (wallet_address, username)
+       VALUES ($1, $2)
+       RETURNING wallet_address, username`,
+      [wallet_address, username.toLowerCase()]
+    );
+    res.status(201).json({ user: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      // unique_violation — figure out which field
+      const field = err.constraint?.includes("username") ? "username" : "wallet";
+      return res.status(409).json({ error: `That ${field} is already taken` });
+    }
+    console.error(err);
+    res.status(500).json({ error: "DB error" });
+  }
+});
+
+// Health check
 app.get("/", (req, res) => res.send("Latch game server is running."));
 
-// socketId -> player record. `scene` is the room the player is currently in
-// ("CommonScene" | "BridgeScene" | "DungeonScene"), or null before they join.
+// ── Socket.io game logic ──────────────────────────────────────────────────────
+
 const players = {};
 
-// Return every player currently in `scene`, optionally excluding one id.
 function playersInScene(scene, exceptId) {
   const result = {};
   for (const [id, p] of Object.entries(players)) {
@@ -36,99 +107,86 @@ function playersInScene(scene, exceptId) {
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
-  // Create the record but don't place them in any scene yet — the client
-  // tells us which scene it's in via `joinScene` from each scene's create().
   players[socket.id] = {
-    playerId: socket.id,
-    scene: null,
-    sprite: "Spearman",
-    x: 400,
-    y: 300,
-    life: 100,
-    attack: 10,
-    weapon: "sword",
+    playerId:  socket.id,
+    scene:     null,
+    sprite:    "Spearman",
+    username:  null,
+    x: 400, y: 300,
+    life: 100, attack: 10, weapon: "sword",
     animation: "Spearman_idleDown",
     flipX: false,
   };
 
-  // Player entered a scene (initial load, or switched scenes via the portal
-  // dialog). Move them between Socket.io rooms so they only ever see and
-  // fight players in the same scene.
   socket.on("joinScene", (data = {}) => {
     const p = players[socket.id];
     if (!p) return;
 
     const nextScene = data.scene || "CommonScene";
 
-    // Leave the previous room and let those players drop our sprite.
     if (p.scene && p.scene !== nextScene) {
       socket.leave(p.scene);
       socket.to(p.scene).emit("playerDisconnected", socket.id);
     }
 
-    p.scene = nextScene;
-    if (data.sprite) p.sprite = data.sprite;
+    p.scene    = nextScene;
+    if (data.sprite)   p.sprite   = data.sprite;
+    if (data.username) p.username = data.username;
     if (typeof data.x === "number") p.x = data.x;
     if (typeof data.y === "number") p.y = data.y;
     if (data.animation) p.animation = data.animation;
     p.flipX = !!data.flipX;
-    p.life = 100; // fresh health whenever you enter a scene
+    p.life  = 100;
 
     socket.join(nextScene);
-
-    // Tell the newcomer who is already here, and tell everyone here about them.
     socket.emit("currentPlayers", playersInScene(nextScene, socket.id));
     socket.to(nextScene).emit("newPlayer", p);
-
-    console.log(`${socket.id} joined ${nextScene}`);
+    console.log(`${p.username ?? socket.id} joined ${nextScene}`);
   });
 
-  // Movement is broadcast only to the player's current room.
-  socket.on("movePlayer", (movementData) => {
+  socket.on("movePlayer", (data) => {
     const p = players[socket.id];
     if (!p || !p.scene) return;
-    p.x = movementData.x;
-    p.y = movementData.y;
-    p.animation = movementData.animation;
-    p.flipX = movementData.flipX;
+    p.x = data.x; p.y = data.y;
+    p.animation = data.animation;
+    p.flipX     = data.flipX;
     socket.to(p.scene).emit("playerMoved", p);
   });
 
-  // Attacks only land on players in the same scene.
   socket.on("attackPlayer", (targetId) => {
     const attacker = players[socket.id];
-    const target = players[targetId];
+    const target   = players[targetId];
     if (!attacker || !target) return;
     if (attacker.scene == null || attacker.scene !== target.scene) return;
 
     target.life -= attacker.attack;
-    console.log(`attack ${attacker.playerId} -> ${target.playerId} (life ${target.life})`);
-
     if (target.life <= 0) {
       target.life = 0;
-      // Announce the KO to everyone in the room; the defeated client returns
-      // to the common area and the rest drop the sprite.
       io.to(attacker.scene).emit("playerDefeated", targetId);
     } else {
       io.to(attacker.scene).emit("playerAttacked", {
         attacker: socket.id,
-        target: targetId,
-        life: target.life,
+        target:   targetId,
+        life:     target.life,
       });
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log("A user disconnected:", socket.id);
+  socket.on("chatMessage", (data) => {
     const p = players[socket.id];
-    if (p && p.scene) {
-      socket.to(p.scene).emit("playerDisconnected", socket.id);
-    }
+    if (!p || !p.scene || typeof data.message !== "string") return;
+    const message = data.message.trim().slice(0, 80);
+    if (!message) return;
+    io.to(p.scene).emit("chatMessage", { playerId: socket.id, message });
+  });
+
+  socket.on("disconnect", () => {
+    const p = players[socket.id];
+    if (p?.scene) socket.to(p.scene).emit("playerDisconnected", socket.id);
     delete players[socket.id];
+    console.log("Disconnected:", socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
