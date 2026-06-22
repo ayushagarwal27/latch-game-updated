@@ -2,10 +2,11 @@
 // boots and then read by every scene. `sprite` must match a loaded
 // spritesheet key ("Spearman" or "orc").
 export const playerConfig = {
-  sprite:   "Spearman",
-  username: null, // set after wallet login
+  sprite:        "Spearman",
+  username:      null,  // set after wallet login
+  walletAddress: null,  // set after wallet connects
+  battleId:      null,  // set when entering a wager battle via the lobby
+  isCreator:     null,  // true = player A (created battle), false = player B (joined)
 };
 
-// Characters available on the select screen. Both sheets share the exact same
-// 6x13 frame layout, so the animation frame numbers below work for either.
-export const CHARACTERS = ["Spearman", "orc"];
+export const CHARACTERS = ["Spearman", "orc", "Player", "Skeleton"];

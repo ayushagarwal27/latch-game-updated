@@ -29,26 +29,61 @@ const SERVER_EVENTS = [
   "playerDefeated",
   "playerDisconnected",
   "chatMessage",
+  "battleResult",
 ];
 
-// Frame layout, identical for Spearman.png and orc.png (both 6x13).
-const FRAMES = {
-  idleDown: [0, 5],
-  idleRight: [6, 11],
-  idleUp: [12, 17],
-  walkDown: [18, 23],
-  walkRight: [24, 29],
-  walkUp: [30, 35],
-  attackDown: [36, 39],
-  attackRight: [42, 46],
-  attackUp: [48, 52],
-  die: [54, 56],
+// Per-character frame layout and physics body config.
+// Spearman/orc: 48x48 frames, 6x13 grid.
+// Player/Skeleton: 32x32 frames, 6x10 grid.
+export const CHAR_CONFIG = {
+  Spearman: {
+    frameWidth: 48, frameHeight: 48,
+    bodyW: 24, bodyH: 28, bodyOffX: 10, bodyOffY: 13,
+    frames: {
+      idleDown: [0, 5], idleRight: [6, 11], idleUp: [12, 17],
+      walkDown: [18, 23], walkRight: [24, 29], walkUp: [30, 35],
+      attackDown: [36, 39], attackRight: [42, 46], attackUp: [48, 52],
+      die: [54, 56],
+    },
+  },
+  orc: {
+    frameWidth: 48, frameHeight: 48,
+    bodyW: 24, bodyH: 28, bodyOffX: 10, bodyOffY: 13,
+    frames: {
+      idleDown: [0, 5], idleRight: [6, 11], idleUp: [12, 17],
+      walkDown: [18, 23], walkRight: [24, 29], walkUp: [30, 35],
+      attackDown: [36, 39], attackRight: [42, 46], attackUp: [48, 52],
+      die: [54, 56],
+    },
+  },
+  Player: {
+    frameWidth: 32, frameHeight: 32,
+    bodyW: 16, bodyH: 20, bodyOffX: 8, bodyOffY: 8,
+    frames: {
+      idleDown: [0, 0], idleRight: [12, 12], idleUp: [18, 18],
+      walkDown: [0, 5], walkRight: [12, 17], walkUp: [18, 23],
+      attackDown: [24, 29], attackRight: [36, 41], attackUp: [42, 47],
+      die: [48, 53],
+    },
+  },
+  Skeleton: {
+    frameWidth: 32, frameHeight: 32,
+    bodyW: 16, bodyH: 20, bodyOffX: 8, bodyOffY: 8,
+    frames: {
+      idleDown: [0, 0], idleRight: [12, 12], idleUp: [18, 18],
+      walkDown: [0, 5], walkRight: [12, 17], walkUp: [18, 23],
+      attackDown: [24, 29], attackRight: [36, 41], attackUp: [42, 47],
+      die: [48, 53],
+    },
+  },
 };
 
 // Create the full set of animations for one character sheet, prefixed by its
 // texture key. Idempotent — safe to call from every scene's create().
 export function ensureAnims(scene, key) {
-  for (const [name, [start, end]] of Object.entries(FRAMES)) {
+  const cfg = CHAR_CONFIG[key];
+  if (!cfg) return;
+  for (const [name, [start, end]] of Object.entries(cfg.frames)) {
     const animKey = key + "_" + name;
     if (scene.anims.exists(animKey)) continue;
     const oneShot = name.indexOf("attack") === 0 || name === "die";
@@ -204,10 +239,86 @@ function defaultLocalDefeat(scene) {
   scene.player.body && scene.player.body.setVelocity(0);
   const dieKey = (scene.spriteKey || "Spearman") + "_die";
   if (scene.anims.exists(dieKey)) scene.player.play(dieKey);
-  scene.time.delayedCall(1800, () => {
+  // Transition is handled by the battleResult popup.
+  // Safety fallback: go home after 8 s if battleResult never arrives.
+  scene._defeatFallback = scene.time.delayedCall(8000, () => {
     scene.input.keyboard.enabled = true;
     scene.scene.start("CommonScene");
   });
+}
+
+// ---- post-match popup -------------------------------------------------------
+
+function showBattleResultPopup(scene, isWinner, winnerUsername, loserUsername, rewardLamports) {
+  // Inject styles once
+  if (!document.getElementById("br-style")) {
+    const s = document.createElement("style");
+    s.id = "br-style";
+    s.textContent = `
+      #br-overlay {
+        display: none; position: fixed; inset: 0;
+        background: rgba(0,0,0,0.80); z-index: 300;
+        align-items: center; justify-content: center;
+        font-family: sans-serif;
+      }
+      .br-box {
+        background: #1a1d2e; border: 2px solid #333; border-radius: 14px;
+        padding: 40px 56px; text-align: center; max-width: 420px;
+      }
+      .br-title { font-size: 38px; font-weight: 900; margin-bottom: 10px; }
+      .br-win   { color: #ffd24a; text-shadow: 0 0 24px #ffd24a99; }
+      .br-lose  { color: #ff6b6b; }
+      .br-msg   { color: #ccc; font-size: 15px; margin: 0 0 10px; line-height: 1.5; }
+      .br-msg strong { color: #fff; }
+      .br-reward { color: #4ade80; font-size: 14px; margin-bottom: 18px; }
+      .br-cd { color: #666; font-size: 13px; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  let overlay = document.getElementById("br-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "br-overlay";
+    document.body.appendChild(overlay);
+  }
+
+  const rewardSOL = (rewardLamports / 1e9).toFixed(2);
+  const hasWager  = rewardLamports > 0;
+
+  overlay.innerHTML = `
+    <div class="br-box">
+      <div class="br-title ${isWinner ? "br-win" : "br-lose"}">
+        ${isWinner ? "⚔️ VICTORY!" : "💀 DEFEATED"}
+      </div>
+      <p class="br-msg">
+        ${isWinner
+          ? `You defeated <strong>${loserUsername}</strong>!`
+          : `You were defeated by <strong>${winnerUsername}</strong>.`}
+      </p>
+      ${isWinner && hasWager
+        ? `<p class="br-reward">◎ ${rewardSOL} SOL is being sent to your wallet!</p>`
+        : ""}
+      <p class="br-cd">Returning to town in <span id="br-secs">5</span>s…</p>
+    </div>
+  `;
+  overlay.style.display = "flex";
+
+  let secs = 5;
+  const tick = setInterval(() => {
+    secs--;
+    const el = document.getElementById("br-secs");
+    if (el) el.textContent = secs;
+    if (secs <= 0) {
+      clearInterval(tick);
+      overlay.style.display = "none";
+      // Cancel the safety fallback timer if it's still pending
+      if (scene._defeatFallback) { scene._defeatFallback.remove(false); scene._defeatFallback = null; }
+      if (scene.input) scene.input.keyboard.enabled = true;
+      playerConfig.battleId = null;
+      scene.scene.start("CommonScene");
+    }
+  }, 1000);
 }
 
 // ---- setup -----------------------------------------------------------------
@@ -309,6 +420,17 @@ export function setupMultiplayer(scene, sceneName, opts = {}) {
 
   socket.on("playerDisconnected", (id) => removeOtherPlayer(scene, id));
 
+  socket.on("battleResult", (data) => {
+    const isWinner = data.winnerId === socket.id;
+    showBattleResultPopup(
+      scene,
+      isWinner,
+      data.winnerUsername,
+      data.loserUsername,
+      data.rewardLamports ?? 0
+    );
+  });
+
   // Local player name tag — created once, updated every frame inside emitMove.
   scene.playerNameTag = makeNameTag(
     scene,
@@ -331,13 +453,15 @@ export function setupMultiplayer(scene, sceneName, opts = {}) {
   // reconnects after a network blip or a Render free-tier spin-down. Without
   // this, a reconnected socket sits in no room and is invisible to everyone.
   lastJoin = {
-    scene:    sceneName,
-    sprite:   playerConfig.sprite,
-    username: playerConfig.username,
-    x:        scene.player.x,
-    y:        scene.player.y,
-    animation: (scene.spriteKey || "Spearman") + "_idleDown",
-    flipX:    scene.player.flipX || false,
+    scene:         sceneName,
+    sprite:        playerConfig.sprite,
+    username:      playerConfig.username,
+    walletAddress: playerConfig.walletAddress,
+    battleId:      playerConfig.battleId,
+    x:             scene.player.x,
+    y:             scene.player.y,
+    animation:     (scene.spriteKey || "Spearman") + "_idleDown",
+    flipX:         scene.player.flipX || false,
   };
   if (!reconnectBound) {
     reconnectBound = true;

@@ -214,7 +214,86 @@
   </div>
 </div>
 
-<!-- ── 3. Scene transition prompt ──────────────────────────────────────── -->
+<!-- ── 3. Lobby overlay ─────────────────────────────────────────────────── -->
+<div id="lobby-overlay" style="
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 70;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+">
+</div>
+
+<style>
+  .lobby-box {
+    background: #11131a;
+    border: 2px solid #333a4a;
+    border-radius: 14px;
+    padding: 28px 36px;
+    min-width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: #fff;
+  }
+  .lobby-box h3 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #aab2c0;
+  }
+  .lobby-wager-info { margin: 0; font-size: 13px; color: #aab2c0; }
+  .lobby-wager-info strong { color: #4d96ff; }
+  .lobby-list { display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
+  .lobby-battle-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #1c1f2a;
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .lobby-player { flex: 1; font-size: 13px; }
+  .lobby-wager  { font-size: 12px; color: #4caf50; }
+  .lobby-join-btn {
+    background: #4d96ff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 16px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .lobby-join-btn:hover:not(:disabled) { background: #6aaaff; }
+  .lobby-join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lobby-empty { color: #555; font-size: 13px; text-align: center; margin: 12px 0; }
+  .lobby-waiting { text-align: center; font-size: 14px; color: #aab2c0; margin: 8px 0; }
+  .lobby-hint { text-align: center; }
+  .lobby-actions { display: flex; gap: 10px; justify-content: center; }
+  .lobby-actions button {
+    background: #1c1f2a;
+    border: 2px solid #333a4a;
+    border-radius: 8px;
+    padding: 10px 22px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.1s;
+  }
+  .lobby-actions button:hover:not(:disabled) { border-color: #4d96ff; }
+  .lobby-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #lobby-create-btn { border-color: #4d96ff; }
+  .lobby-status { font-size: 12px; text-align: center; min-height: 16px; margin: 0; }
+</style>
+
+<!-- ── 4. Scene transition prompt ──────────────────────────────────────── -->
 <div id="input-box" style="display: none">
   <h4>Do you want to join the battle ?</h4>
   <button id="yes">Yes</button>

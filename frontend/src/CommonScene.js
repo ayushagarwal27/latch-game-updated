@@ -1,7 +1,8 @@
 import { Scene, Input } from "phaser";
 import Level from "./Level.js";
-import { setupMultiplayer, emitMove, ensureAnims } from "./net.js";
+import { setupMultiplayer, emitMove, ensureAnims, CHAR_CONFIG, socket } from "./net.js";
 import { playerConfig } from "./config.js";
+import { showLobby, hideLobby } from "./lobby.js";
 export default class CommonScene extends Scene {
   constructor() {
     super("CommonScene");
@@ -133,31 +134,35 @@ export default class CommonScene extends Scene {
     this.player.setBodySize(24, 28);
     this.player.setOffset(10, 13);
     this.cursors = this.input.keyboard.createCursorKeys();
-    let element = document.getElementById("input-box");
-    const yesButton = document.getElementById("yes");
-    const noButton = document.getElementById("no");
     this.physics.add.collider(this.player, layer1);
+
+    // Track which portal the player is touching to avoid re-triggering
+    this._inPortal = false;
+
     this.physics.add.collider(this.player, objectLayer, (a, b) => {
-      if (b?.properties?.dungeon) {
-        element.style.display = "block";
-        yesButton.addEventListener("click", () => {
-          this.scene.start("DungeonScene");
-          element.style.display = "none";
-        });
-        noButton.addEventListener("click", () => {
-          element.style.display = "none";
-        });
-      }
-      if (b?.properties?.bridge) {
-        element.style.display = "block";
-        yesButton.addEventListener("click", () => {
-          this.scene.start("BridgeScene");
-          element.style.display = "none";
-        });
-        noButton.addEventListener("click", () => {
-          element.style.display = "none";
-        });
-      }
+      if (this._inPortal) return; // already showing lobby
+
+      let sceneNum  = null;
+      let sceneName = null;
+      if (b?.properties?.dungeon) { sceneNum = 1; sceneName = "DungeonScene"; }
+      if (b?.properties?.bridge)  { sceneNum = 2; sceneName = "BridgeScene";  }
+      if (!sceneNum) return;
+
+      this._inPortal = true;
+
+      showLobby(
+        sceneNum,
+        socket,
+        (battleId) => {
+          playerConfig.battleId = battleId;
+          this._inPortal = false;
+          this.scene.start(sceneName);
+        },
+        () => {
+          // Player cancelled — let them walk away and re-trigger
+          this._inPortal = false;
+        }
+      );
     });
 
     // this.cameras.main.setBounds(0, 0, +this.game.config.width, +this.game.config.height);

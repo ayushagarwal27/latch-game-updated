@@ -1,6 +1,6 @@
 import { Scene, Input } from "phaser";
 import Level from "./Level.js";
-import { setupMultiplayer, emitMove, performAttack, ensureAnims } from "./net.js";
+import { setupMultiplayer, emitMove, performAttack, ensureAnims, CHAR_CONFIG } from "./net.js";
 import { playerConfig } from "./config.js";
 
 export default class DungeonScene extends Scene {
@@ -19,14 +19,10 @@ export default class DungeonScene extends Scene {
     this.load.image("objects", "/assets/Dungeon_Objects.png");
     this.load.image("spikes", "/assets/Floor_spikes_1.png");
     this.load.tilemapTiledJSON("dungeon", "assets/dmap.json");
-    this.load.spritesheet("Spearman", "assets/Spearman.png", {
-      frameWidth: 48,
-      frameHeight: 48,
-    });
-    this.load.spritesheet("orc", "assets/orc.png", {
-      frameWidth: 48,
-      frameHeight: 48,
-    });
+    this.load.spritesheet("Spearman", "assets/Spearman.png", { frameWidth: 48, frameHeight: 48 });
+    this.load.spritesheet("orc",      "assets/orc.png",      { frameWidth: 48, frameHeight: 48 });
+    this.load.spritesheet("Player",   "assets/Player.png",   { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("Skeleton", "assets/Skeleton.png", { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("spike", "assets/spk1.png", {
       frameWidth: 48,
       frameHeight: 48,
@@ -74,23 +70,30 @@ this.game.scale.resize(256,256)
     // this.spike.play("spike-anim", true);
 
     this.spriteKey = playerConfig.sprite;
+    // Creator spawns left, joiner spawns right — prevents both players
+    // occupying the same pixel (which made one invisible until they moved).
+    const spawnX = playerConfig.isCreator === false ? 196 : 60;
+    const spawnY = 118;
     this.player = this.physics.add
-        .sprite(256 / 2 - 50, 256 / 2 - 35, this.spriteKey)
+        .sprite(spawnX, spawnY, this.spriteKey)
         .setScale(1);
 
     this.player.life = 100;
 
+    const charCfg = CHAR_CONFIG[this.spriteKey] || CHAR_CONFIG["Spearman"];
     this.player.setScale(1);
-    this.player.setBodySize(24, 28);
-    this.player.setOffset(10, 13);
+    this.player.setBodySize(charCfg.bodyW, charCfg.bodyH);
+    this.player.setOffset(charCfg.bodyOffX, charCfg.bodyOffY);
     this.cursors = this.input.keyboard.createCursorKeys();
 
     this.physics.add.collider(this.player, pillarLayer);
     this.physics.add.collider(this.player, objectLayer);
 
-    // Build animations for both characters (prefixed by sheet key).
+    // Build animations for all characters so opponents render correctly.
     ensureAnims(this, "Spearman");
     ensureAnims(this, "orc");
+    ensureAnims(this, "Player");
+    ensureAnims(this, "Skeleton");
 
     this.player.play(this.spriteKey + "_idleDown");
     this.healthBar = this.createHealthBar(this.player.x, this.player.y, this.player);

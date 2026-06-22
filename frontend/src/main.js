@@ -86,6 +86,7 @@ async function handleConnect(wallet) {
   try {
     const pubkey = await wallet.connect();
     connectedPubkey = pubkey;
+    playerConfig.walletAddress = pubkey; // make available to game modules
     setStatus("Checking account…");
 
     const result = await getUser(pubkey);
@@ -150,8 +151,10 @@ enterBtn.addEventListener("click", () => {
 // ── Character select → game ───────────────────────────────────────────────────
 document.querySelectorAll("#char-select .char-card").forEach((btn) => {
   btn.addEventListener("click", () => {
-    playerConfig.sprite   = btn.getAttribute("data-sprite") || "Spearman";
-    playerConfig.username = confirmedUser?.username ?? null;
+    playerConfig.sprite        = btn.getAttribute("data-sprite") || "Spearman";
+    playerConfig.username      = confirmedUser?.username ?? null;
+    playerConfig.walletAddress = connectedPubkey;
+    playerConfig.battleId      = null; // reset on each game boot
     charSelect.style.display = "none";
     startGame();
   });
